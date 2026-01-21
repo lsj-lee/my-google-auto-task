@@ -26,10 +26,10 @@ jobs:
       - name: 구글 키 생성
         run: echo '${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}' > service_account.json
 
-      - name: 실행
+     - name: 자동화 프로그램 실행
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # 아래 줄을 반드시 추가해야 '통합DB' 시트를 찾을 수 있습니다.
+          # 구글 키를 사용하도록 변경
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           SPREADSHEET_NAME: ${{ secrets.SPREADSHEET_NAME }}
-          AI_PROVIDER: "openai"
+          AI_PROVIDER: "google"  # 여기를 "google"로 바꿉니다!
         run: python run_all.py
