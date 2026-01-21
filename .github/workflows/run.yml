@@ -1,0 +1,32 @@
+name: Amway Daily Auto Run
+
+on:
+  schedule:
+    # 매일 한국 시간 오전 4시 (UTC 19:00)
+    - cron: '0 19 * * *'
+  workflow_dispatch: 
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 가져오기
+        uses: actions/checkout@v3
+
+      - name: 파이썬 설정
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 도구 설치
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium --with-deps
+
+      - name: 구글 키 생성
+        run: echo '${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}' > service_account.json
+
+      - name: 실행
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python run_all.py
