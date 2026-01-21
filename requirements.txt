@@ -1,0 +1,7 @@
+playwright
+gspread
+google-auth
+openai
+python-dotenv
+google-generativeai
+pytz
