@@ -359,6 +359,33 @@ def crawl_promotions(page):
                         if not price_el: price_el = product.query_selector(".price")
                         price = price_el.inner_text().strip() if price_el else "0"
 
+                        # PV / BV (프로모션 내 상품에서도 추출)
+                        pv = "0"
+                        bv = "0"
+                        
+                        # Data attributes 확인
+                        data_el = product.query_selector("input[name='productTealiumTagInfo']")
+                        if not data_el:
+                            data_el = product.query_selector(".js-addtocart-v2")
+                        
+                        if data_el:
+                            raw_pv = data_el.get_attribute("data-product-point-value")
+                            raw_bv = data_el.get_attribute("data-product-business-volume")
+                            
+                            if raw_pv:
+                                pv = str(int(float(raw_pv)))
+                            if raw_bv:
+                                bv = str(int(float(raw_bv)))
+                        
+                        # 텍스트에서 추출 시도 (Fallback)
+                        if pv == "0":
+                            status_text = product.inner_text()
+                            pv_match = re.search(r"PV\s*:\s*([\d,]+)", status_text)
+                            if pv_match: pv = pv_match.group(1).replace(",", "")
+                            
+                            bv_match = re.search(r"BV\s*:\s*([\d,]+)", status_text)
+                            if bv_match: bv = bv_match.group(1).replace(",", "")
+
                         # Image
                         img_el = product.query_selector("img")
                         img_src = img_el.get_attribute("src") if img_el else ""
@@ -376,8 +403,8 @@ def crawl_promotions(page):
                                 "image": img_src,
                                 "category": "이벤트",
                                 "sub_category": "",
-                                "pv": "0", # 상세까지 파싱하지 않음 (속도 이슈)
-                                "bv": "0"
+                                "pv": pv,
+                                "bv": bv
                             }
                     except: continue
             
