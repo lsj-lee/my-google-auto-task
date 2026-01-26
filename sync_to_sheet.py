@@ -34,34 +34,29 @@ class SheetManager:
             
             try:
                 # D6:N 범위 읽기 최적화
-                # get_all_values()는 시트 전체 데이터를 가져오므로 행이 매우 많으면 느릴 수 있지만,
-                # 특정 범위(D6:N) 계산보다 gspread 내부 처리가 단순할 수 있음.
-                # 여기서는 안전하게 모든 데이터를 가져와서 메모리에서 자릅니다.
-                all_rows = self.worksheet.get_all_values()
+                # get_all_values() 대신 필요한 범위만 가져와서 메모리와 네트워크 대역폭을 절약합니다.
+                # D열(index 0) ~ N열(index 10)까지가 반환됩니다.
+                all_rows = self.worksheet.get('D6:N')
                 
-                # 6번째 행(index 5)부터 시작
-                start_index = 5
-                
-                if len(all_rows) > start_index:
-                    for row in all_rows[start_index:]:
-                        # D열(index 3) ~ N열(index 13)까지가 유효 데이터 범위
-                        # row 길이가 충분한지 확인
-                        if len(row) > 5 and row[5]: # F열(index 5, Name)이 존재해야 함 (전체 기준 F는 5)
-                            # get_all_values 기준 인덱스: A=0, B=1, C=2, D=3, E=4, F=5 ... N=13
-                            name = row[5] # F열
-                            
-                            tags = row[4] if len(row) > 4 else ""  # E열
-                            desc = row[10] if len(row) > 10 else "" # K열 (index 10)
-                            
-                            self.ai_data[name] = {
-                                "tags": tags,
-                                "desc": desc
-                            }
-                            
-                            price = row[11] if len(row) > 11 else "0" # L열 (index 11)
-                            self.old_data[name] = {
-                                "price": price
-                            }
+                for row in all_rows:
+                    # D열(index 0) ~ N열(index 10)까지가 유효 데이터 범위
+                    # row 길이가 충분한지 확인. F열(Name)은 반환된 row의 index 2에 위치합니다.
+                    if len(row) > 2 and row[2]: # F열(index 2, Name)이 존재해야 함
+                        # D6:N 기준 인덱스: D=0, E=1, F=2, ... K=7, L=8 ...
+                        name = row[2] # F열
+
+                        tags = row[1] if len(row) > 1 else ""  # E열
+                        desc = row[7] if len(row) > 7 else "" # K열
+
+                        self.ai_data[name] = {
+                            "tags": tags,
+                            "desc": desc
+                        }
+
+                        price = row[8] if len(row) > 8 else "0" # L열
+                        self.old_data[name] = {
+                            "price": price
+                        }
             except Exception as e:
                 print(f"  (기존 데이터 읽기 실패: {e})")
 
