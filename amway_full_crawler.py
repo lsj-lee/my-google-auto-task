@@ -90,15 +90,29 @@ def crawl_category(page, category_info):
     last_height = page.evaluate("document.body.scrollHeight")
     for i in range(15): # Adequate scrolling
         page.mouse.wheel(0, 15000)
-        time.sleep(2)
         
+        # Smart wait for height change
+        start_wait = time.time()
+        while time.time() - start_wait < 2.0:
+            current_height = page.evaluate("document.body.scrollHeight")
+            if current_height > last_height:
+                break
+            time.sleep(0.1)
+
+        # Add a small buffer to ensure content renders fully or for multiple loads
+        time.sleep(0.2)
+
         # '더보기' 버튼 처리
         try:
             more_btns = page.query_selector_all("a.btn_more, button.btn_more")
             for btn in more_btns:
                 if btn.is_visible():
                     btn.click()
-                    time.sleep(1)
+                    # Optimized wait with fallback
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=1000)
+                    except:
+                        time.sleep(1) # Slightly more conservative fallback
         except: pass
 
         new_height = page.evaluate("document.body.scrollHeight")
