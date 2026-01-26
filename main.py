@@ -24,10 +24,11 @@ load_dotenv()
 SERVICE_ACCOUNT_FILE = 'service_account.json'
 SHEET_NAME = '통합DB'
 START_ROW = 6
-COL_CATEGORY_IDX = 3      # D열 (0-based index: 3)
-COL_PRODUCT_NAME_IDX = 5  # F열 (0-based index: 5)
-COL_TAGS_IDX = 4          # E열 (0-based index: 4)
-COL_DESC_IDX = 10         # K열 (0-based index: 10)
+# [최적화] D열부터 K열까지 가져오므로 인덱스가 변경됨 (D=0, E=1, F=2 ... K=7)
+COL_CATEGORY_IDX = 0      # D열 (Relative 0)
+COL_PRODUCT_NAME_IDX = 2  # F열 (Relative 2)
+COL_TAGS_IDX = 1          # E열 (Relative 1)
+COL_DESC_IDX = 7          # K열 (Relative 7)
 
 # 테스트 제한 해제 (무제한 실행)
 MAX_UPDATES = float('inf') 
@@ -229,8 +230,10 @@ def main():
     print(f"✅ '{spreadsheet_name}'의 '{SHEET_NAME}' 시트 작업을 시작합니다...")
 
     # 3. 데이터 로드 및 업데이트용 리스트 준비
-    all_values = worksheet.get_all_values()
-    start_index = START_ROW - 1 
+    # [최적화] 전체 시트를 읽는 대신 필요한 열(D~K)만 가져옵니다.
+    range_query = f"D{START_ROW}:K"
+    print(f"   - 데이터 읽는 중... ({range_query})")
+    all_values = worksheet.get(range_query)
     
     batch_data = [] # 시트에 한 번에 쓸 데이터 (range, values)
     pending_products = [] # AI에게 보낼 대기열 [{'row':..., 'name':...}]
@@ -242,7 +245,7 @@ def main():
     processed_end = None
 
     try:
-        for i in range(start_index, len(all_values)):
+        for i, row_values in enumerate(all_values):
             if update_count >= MAX_UPDATES:
                 break
             
@@ -252,13 +255,13 @@ def main():
                 print("   - 내일 오전 9시에 사용량이 초기화되면 다시 실행됩니다.")
                 break
 
-            row_num = i + 1
-            row_values = all_values[i]
+            row_num = START_ROW + i
             
-            if len(row_values) < 11:
-                row_values += [''] * (11 - len(row_values))
+            # D(0) ~ K(7) 까지 인덱스를 사용하므로 최소 8개 필요
+            if len(row_values) < 8:
+                row_values += [''] * (8 - len(row_values))
 
-            category = row_values[COL_CATEGORY_IDX].strip() if len(row_values) > COL_CATEGORY_IDX else ""
+            category = row_values[COL_CATEGORY_IDX].strip()
             product_name = row_values[COL_PRODUCT_NAME_IDX].strip()
             current_tags = row_values[COL_TAGS_IDX].strip()
             current_desc = row_values[COL_DESC_IDX].strip()
