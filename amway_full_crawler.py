@@ -279,48 +279,40 @@ def crawl_promotions(page):
     # 가장 확실한 방법: 메인 루프에서 매번 목록 페이지로 돌아오기
     
     count = 0
-    for i in range(len(promo_items)):
-        # Stale Element 방지를 위해 목록 페이지 재진입 (안전 제일)
-        if i > 0:
-            try:
-                page.goto("https://www.amway.co.kr/notifications/promotion", wait_until="networkidle", timeout=30000)
-                time.sleep(1) # 렌더링 대기
-            except: 
-                print("  (목록 페이지 재로딩 실패, 건너뜀)")
-                continue
+    for i, item in enumerate(promo_items):
+        target_href = item["href"]
+        is_js = item["is_js"]
+        target_title = item["text"]
 
-        # 다시 요소 찾기 (순서대로)
         try:
-            # i번째 유효 항목 다시 찾기
-            current_candidates = page.query_selector_all("a")
-            valid_links = []
-            for l in current_candidates:
-                t = l.inner_text().strip()
-                if t and len(t) > 5 and ("기간 :" in t or "프로모션" in t):
-                    valid_links.append(l)
-            
-            if i >= len(valid_links): 
-                break
+            if not is_js and target_href:
+                # Direct Navigation
+                full_url = target_href
+                if full_url.startswith("/"):
+                    full_url = "https://www.amway.co.kr" + full_url
                 
-            target_link = valid_links[i]
-            target_title = target_link.inner_text().split('\n')[0].strip()
-            target_href = target_link.get_attribute("href")
-            
-            print(f"  [{i+1}/{len(promo_items)}] 프로모션 진입: {target_title}")
-
-            # 클릭하여 상세 이동
-            # 새 탭을 여는 것을 시도 (Ctrl+Click) -> 지원 안될 수 있음
-            # 그냥 클릭 후 뒤로가기 전략
-            
-            # 만약 href가 있고 http로 시작하면 goto가 빠름
-            if target_href and target_href.startswith("http"):
-                 page.goto(target_href, wait_until="networkidle", timeout=30000)
-            elif target_href and target_href.startswith("/"):
-                 page.goto("https://www.amway.co.kr" + target_href, wait_until="networkidle", timeout=30000)
+                print(f"  [{i+1}/{len(promo_items)}] 프로모션 진입 (Direct): {target_title}")
+                page.goto(full_url, wait_until="networkidle", timeout=30000)
             else:
-                 # JS 클릭
-                 target_link.click()
-                 page.wait_for_load_state("networkidle", timeout=30000)
+                # Fallback: Reload list and click
+                print(f"  [{i+1}/{len(promo_items)}] 프로모션 진입 (Fallback): {target_title}")
+                page.goto("https://www.amway.co.kr/notifications/promotion", wait_until="networkidle", timeout=30000)
+                time.sleep(1)
+
+                # Re-find element
+                current_candidates = page.query_selector_all("a")
+                valid_links = []
+                for l in current_candidates:
+                    t = l.inner_text().strip()
+                    if t and len(t) > 5 and ("기간 :" in t or "프로모션" in t):
+                        valid_links.append(l)
+
+                if i < len(valid_links):
+                    valid_links[i].click()
+                    page.wait_for_load_state("networkidle", timeout=30000)
+                else:
+                    print("    -> 요소 재탐색 실패")
+                    continue
 
             # --- 상세 페이지 도착 ---
             
