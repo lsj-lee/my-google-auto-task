@@ -214,23 +214,14 @@ def crawl_promotions(page):
     """
     /notifications/promotion 페이지를 크롤링하여 이벤트 목록을 수집합니다.
     """
-    print("Crawling Promotions...")
+    print("Crawling Promotions (Optimized)...")
     try:
         page.goto("https://www.amway.co.kr/notifications/promotion", wait_until="networkidle", timeout=60000)
     except Exception as e:
         print(f"  Error loading promotion page: {e}")
         return {}
 
-    # 이벤트 리스트 컨테이너 (텍스트 분석 결과 기반 추정)
-    # 이미지 + 텍스트 구조로 되어 있음. '총 (9)' 같은 텍스트가 있으므로 리스트가 존재함.
-    # 각 항목은 링크, 이미지, 제목, 기간 정보를 포함함.
-    
-    # 일반적인 리스트 아이템 선택자 시도
-    # .board-list-item, .promotion-item 등
     promo_data = {}
-    
-    # 텍스트 기반으로 '기간 :'이 포함된 요소들의 부모를 찾아 처리
-    # Playwright의 locator 사용
     
     # 스크롤
     try:
@@ -238,29 +229,10 @@ def crawl_promotions(page):
         time.sleep(1)
     except: pass
 
-    # 구체적인 셀렉터가 없으므로 링크가 있는 블록을 찾습니다.
-    # 보통 프로모션은 <a> 태그 안에 이미지와 텍스트가 묶여있거나, <div>로 감싸져 있음.
-    # 텍스트 분석 결과: [이미지] \n [분류] 제목 \n 기간 : ...
-    
-    # "기간 :" 텍스트를 포함하는 요소들을 찾아서 그 부모 컨테이너를 잡음
-    items = page.locator("div:has-text('기간 :')").all()
-    
-    # 만약 위의 방식이 너무 광범위하다면, 이미지와 텍스트가 함께 있는 링크를 찾음
-    # .list_content, .event_list 등으로 추정되지만, 안전하게 page 내의 주요 컨텐츠 영역 스캔
-    
-    # 더 확실한 방법: 페이지 내의 모든 'a' 태그 중 href가 있고 이미지를 포함하며 텍스트가 있는 것
-    links = page.query_selector_all("a")
-    
-    # 상세 페이지 크롤링을 위한 링크 리스트 (URL 또는 Element Handle)
-    # href가 '#'인 경우 클릭해서 이동해야 하므로, 요소 자체를 식별할 방법 필요
-    # 그러나 클릭 후 뒤로가기는 불안정할 수 있으므로, href가 있는 것만 수집하거나
-    # onclick 이벤트를 분석하는 것이 좋으나 복잡함.
-    # 대안: 목록에 있는 '제목'을 클릭 -> 새 탭에서 열기 시도 -> 안되면 현재 탭 이동 후 뒤로가기
-    
-    # 전략: 유효한 프로모션 항목(텍스트 기준)을 찾아서 리스트업
+    # Collect items with data-code or valid href
     promo_items = []
     
-    # "기간 :" 이 포함된 텍스트를 가진 a 태그 또는 그 부모 찾기
+    # Query all 'a' tags
     candidates = page.query_selector_all("a")
     for link_el in candidates:
         try:
@@ -268,79 +240,52 @@ def crawl_promotions(page):
             if not text or len(text) < 5: continue
             if "기간 :" not in text and "프로모션" not in text: continue
             
-            # href 확인
+            # Skip tabs
+            if "진행중인" in text or "종료된" in text: continue
+
             href = link_el.get_attribute("href")
-            # js로 이동하는 경우 (href='#' or 'javascript:...')
-            is_js_link = not href or href == "#" or "javascript" in href
+            data_code = link_el.get_attribute("data-code")
+            notice_type = link_el.get_attribute("data-notice-type")
+
+            # Determine if valid item
+            target_url = None
+            if href and href != "#" and not href.startswith("javascript"):
+                target_url = href
+                if target_url.startswith("/"):
+                    target_url = "https://www.amway.co.kr" + target_url
+            elif data_code and notice_type:
+                target_url = f"https://www.amway.co.kr/notifications/promotion/detail?notificationCode={data_code}&noticeType={notice_type}&searchPromotionStatus=progress"
             
-            promo_items.append({
-                "text": text.split('\n')[0].strip(), # 제목만
-                "element": link_el, # 나중에 클릭용 (주의: DOM 변경되면 유효하지 않을 수 있음)
-                "href": href,
-                "is_js": is_js_link
-            })
+            if target_url:
+                promo_items.append({
+                    "text": text.split('\n')[0].strip(),
+                    "url": target_url
+                })
         except: continue
 
-    print(f"  총 {len(promo_items)}개의 프로모션 항목을 발견했습니다.")
+    print(f"  총 {len(promo_items)}개의 유효한 프로모션 항목을 발견했습니다.")
 
-    # 상세 페이지 방문 및 상품 추출
-    # DOM이 변경되는 것을 막기 위해, 매번 페이지를 새로고침하거나 하지 않고
-    # 새 탭(context.new_page)을 열어서 URL로 가거나, 
-    # JS 링크의 경우 클릭 로직을 신중하게 처리해야 함.
-    # 하지만 Playwright에서 element handle은 페이지가 바뀌면 끊김.
-    
-    # 가장 확실한 방법: 메인 루프에서 매번 목록 페이지로 돌아오기
-    
-    count = 0
+    # Create a new page context for details
+    detail_page = page.context.new_page()
+
     for i, item in enumerate(promo_items):
-        target_href = item["href"]
-        is_js = item["is_js"]
+        target_url = item["url"]
         target_title = item["text"]
 
+        print(f"  [{i+1}/{len(promo_items)}] 프로모션 진입: {target_title}")
         try:
-            if not is_js and target_href:
-                # Direct Navigation
-                full_url = target_href
-                if full_url.startswith("/"):
-                    full_url = "https://www.amway.co.kr" + full_url
-                
-                print(f"  [{i+1}/{len(promo_items)}] 프로모션 진입 (Direct): {target_title}")
-                page.goto(full_url, wait_until="networkidle", timeout=30000)
-            else:
-                # Fallback: Reload list and click
-                print(f"  [{i+1}/{len(promo_items)}] 프로모션 진입 (Fallback): {target_title}")
-                page.goto("https://www.amway.co.kr/notifications/promotion", wait_until="networkidle", timeout=30000)
-                time.sleep(1)
-
-                # Re-find element
-                current_candidates = page.query_selector_all("a")
-                valid_links = []
-                for l in current_candidates:
-                    t = l.inner_text().strip()
-                    if t and len(t) > 5 and ("기간 :" in t or "프로모션" in t):
-                        valid_links.append(l)
-
-                if i < len(valid_links):
-                    valid_links[i].click()
-                    page.wait_for_load_state("networkidle", timeout=30000)
-                else:
-                    print("    -> 요소 재탐색 실패")
-                    continue
-
+            detail_page.goto(target_url, wait_until="networkidle", timeout=30000)
+            
             # --- 상세 페이지 도착 ---
             
-            # 1. 페이지 내의 상품 링크 찾기 (/shop/ 으로 시작하는 링크)
-            # 프로모션 페이지 내에는 상품 목록이 '관련 제품'이나 본문에 링크로 걸려있음.
-            # .product-list, .box_product 등을 우선 찾고, 없으면 일반 링크 탐색
-            
             # 잠시 스크롤
-            page.mouse.wheel(0, 3000)
+            detail_page.mouse.wheel(0, 3000)
             time.sleep(1)
 
             # 상품 카드 (.product_item) 우선 검색 (일반적인 상품 목록 패턴)
-            products = page.query_selector_all(".product_item")
+            products = detail_page.query_selector_all(".product_item")
             if not products:
-                products = page.query_selector_all(".box_product")
+                products = detail_page.query_selector_all(".box_product")
 
             # 상품 카드가 있으면 기존 크롤링 로직 활용
             if products:
@@ -416,7 +361,7 @@ def crawl_promotions(page):
             # 상품 카드가 없는 경우 (이미지 통배너에 링크만 걸린 경우)
             else:
                 # /shop/ 링크를 모두 찾음
-                shop_links = page.query_selector_all("a[href*='/shop/']")
+                shop_links = detail_page.query_selector_all("a[href*='/shop/']")
                 for sl in shop_links:
                     try:
                         href = sl.get_attribute("href")
@@ -453,7 +398,20 @@ def crawl_promotions(page):
 
         except Exception as e:
             print(f"    -> 상세 페이지 로드 실패: {e}")
+            # Try to recover detail page in case it crashed
+            try:
+                detail_page.close()
+            except: pass
             
+            try:
+                detail_page = page.context.new_page()
+            except:
+                print("    -> Critical: Failed to recreate detail page.")
+
+    try:
+        detail_page.close()
+    except: pass
+
     print(f"  Found {len(promo_data)} products in promotions.")
     return promo_data
 
@@ -465,7 +423,8 @@ def run_full_crawl(data_callback=None):
     with sync_playwright() as p:
         print("  -> 브라우저를 실행 중입니다... (잠시만 기다려주세요)")
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context()
+        page = context.new_page()
         
         # 1. 카테고리 탭 발견
         cats = discover_category_tabs(page)
