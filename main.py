@@ -40,6 +40,14 @@ MAX_DAILY_REQUESTS = 240
 
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "openai").lower() # 'openai' or 'google'
 
+# [최적화] AI 공급자별 최소 요청 간격 설정 (초 단위)
+# Google: 15 RPM = 4초 간격. (안전을 위해 5초 설정)
+# OpenAI: 티어에 따라 다르지만 훨씬 빠름. (안전을 위해 1초 설정)
+if AI_PROVIDER == 'google':
+    MIN_REQUEST_INTERVAL = 5.0
+else:
+    MIN_REQUEST_INTERVAL = 1.0
+
 # 클라이언트 초기화
 openai_client = None
 if AI_PROVIDER == 'openai':
@@ -243,6 +251,7 @@ def main():
 
     processed_start = None
     processed_end = None
+    last_request_time = 0 # 마지막 API 요청 시간
 
     try:
         for i, row_values in enumerate(all_values):
@@ -304,19 +313,26 @@ def main():
                             print(f"  -> {len(results)}건 처리 완료")
                             pending_products = [] # 초기화
                             
-                            # [안전장치] RPM 제한 준수를 위한 60초 대기
+                            # [안전장치] RPM 제한 준수 (동적 대기)
                             # 대기하기 전에 현재까지 작업한 내용을 시트에 저장 (데이터 보호)
                             if batch_data:
                                 try:
-                                    print("  -> (60초 대기 전) 데이터 시트 저장 중...")
+                                    print("  -> 데이터 시트 저장 중...")
                                     worksheet.batch_update(batch_data)
                                     batch_data = [] # 저장 후 초기화
                                     print("  -> 저장 완료")
                                 except Exception as e:
                                     print(f"  -> ⚠️ 중간 저장 실패: {e} (메모리에 보관 후 나중에 재시도)")
 
-                            print("  -> 1분당 요청 제한(RPM) 준수를 위해 60초 대기합니다...")
-                            time.sleep(60) 
+                            # 다음 요청까지 남은 시간 계산
+                            elapsed = time.time() - last_request_time
+                            wait_time = max(0, MIN_REQUEST_INTERVAL - elapsed)
+
+                            if wait_time > 0:
+                                print(f"  -> RPM 제한 준수를 위해 {wait_time:.1f}초 대기합니다...")
+                                time.sleep(wait_time)
+
+                            last_request_time = time.time()
                         else:
                             print("  -> AI 응답이 비어있습니다. (건너뜀)")
                             pending_products = [] 
