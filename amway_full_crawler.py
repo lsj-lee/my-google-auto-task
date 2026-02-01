@@ -99,9 +99,6 @@ def crawl_category(page, category_info):
                 break
             time.sleep(0.1)
 
-        # Add a small buffer to ensure content renders fully or for multiple loads
-        time.sleep(0.2)
-
         # '더보기' 버튼 처리
         try:
             more_btns = page.query_selector_all("a.btn_more, button.btn_more")
