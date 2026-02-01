@@ -7,6 +7,8 @@ from playwright.async_api import async_playwright
 import datetime
 
 DATA_FILE = "amway_products_full.json"
+PV_REGEX = re.compile(r"PV\s*:\s*([\d,]+)")
+BV_REGEX = re.compile(r"BV\s*:\s*([\d,]+)")
 
 async def discover_category_tabs(page):
     """
@@ -91,8 +93,6 @@ async def crawl_category(page, category_info):
                 break
             await asyncio.sleep(0.1)
 
-        await asyncio.sleep(0.2)
-
         # '더보기' 버튼 처리
         try:
             more_btns = await page.query_selector_all("a.btn_more, button.btn_more")
@@ -171,11 +171,11 @@ async def crawl_category(page, category_info):
                     bv = str(int(float(raw_bv)))
             
             if pv == "0":
-                pv_match = re.search(r"PV\s*:\s*([\d,]+)", status_text)
+                pv_match = PV_REGEX.search(status_text)
                 if pv_match: pv = pv_match.group(1).replace(",", "")
 
             if bv == "0":
-                bv_match = re.search(r"BV\s*:\s*([\d,]+)", status_text)
+                bv_match = BV_REGEX.search(status_text)
                 if bv_match: bv = bv_match.group(1).replace(",", "")
             
             final_category = cat_name
@@ -321,10 +321,10 @@ async def crawl_promotions(page):
                         
                         if pv == "0":
                             status_text = await product.inner_text()
-                            pv_match = re.search(r"PV\s*:\s*([\d,]+)", status_text)
+                            pv_match = PV_REGEX.search(status_text)
                             if pv_match: pv = pv_match.group(1).replace(",", "")
                             
-                            bv_match = re.search(r"BV\s*:\s*([\d,]+)", status_text)
+                            bv_match = BV_REGEX.search(status_text)
                             if bv_match: bv = bv_match.group(1).replace(",", "")
 
                         img_el = await product.query_selector("img")
