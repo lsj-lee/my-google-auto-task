@@ -93,6 +93,8 @@ async def crawl_category(page, category_info):
                 break
             await asyncio.sleep(0.1)
 
+        await asyncio.sleep(0.2)
+
         # '더보기' 버튼 처리
         try:
             more_btns = await page.query_selector_all("a.btn_more, button.btn_more")
@@ -203,7 +205,7 @@ async def crawl_promotions(page):
     """
     /notifications/promotion 페이지를 크롤링하여 이벤트 목록을 수집합니다.
     """
-    print("Crawling Promotions...")
+    print("Crawling Promotions (Optimized)...")
     try:
         await page.goto("https://www.amway.co.kr/notifications/promotion", wait_until="networkidle", timeout=60000)
     except Exception as e:
@@ -212,13 +214,16 @@ async def crawl_promotions(page):
 
     promo_data = {}
     
+    # 스크롤
     try:
         await page.mouse.wheel(0, 5000)
         await asyncio.sleep(1)
     except: pass
 
+    # Collect items with data-code or valid href
     promo_items = []
     
+    # Query all 'a' tags
     candidates = await page.query_selector_all("a")
     for link_el in candidates:
         try:
@@ -227,61 +232,53 @@ async def crawl_promotions(page):
             if not text or len(text) < 5: continue
             if "기간 :" not in text and "프로모션" not in text: continue
             
+            # Skip tabs
+            if "진행중인" in text or "종료된" in text: continue
+
             href = await link_el.get_attribute("href")
-            is_js_link = not href or href == "#" or "javascript" in href
+            data_code = await link_el.get_attribute("data-code")
+            notice_type = await link_el.get_attribute("data-notice-type")
+
+            # Determine if valid item
+            target_url = None
+            if href and href != "#" and not href.startswith("javascript"):
+                target_url = href
+                if target_url.startswith("/"):
+                    target_url = "https://www.amway.co.kr" + target_url
+            elif data_code and notice_type:
+                target_url = f"https://www.amway.co.kr/notifications/promotion/detail?notificationCode={data_code}&noticeType={notice_type}&searchPromotionStatus=progress"
             
-            promo_items.append({
-                "text": text.split('\n')[0].strip(),
-                "element": link_el,
-                "href": href,
-                "is_js": is_js_link
-            })
+            if target_url:
+                promo_items.append({
+                    "text": text.split('\n')[0].strip(),
+                    "url": target_url
+                })
         except: continue
 
-    print(f"  총 {len(promo_items)}개의 프로모션 항목을 발견했습니다.")
+    print(f"  총 {len(promo_items)}개의 유효한 프로모션 항목을 발견했습니다.")
 
-    count = 0
+    # Create a new page context for details
+    # In playwright async api, we use context.new_page()
+    detail_page = await page.context.new_page()
+
     for i, item in enumerate(promo_items):
-        target_href = item["href"]
-        is_js = item["is_js"]
+        target_url = item["url"]
         target_title = item["text"]
 
+        print(f"  [{i+1}/{len(promo_items)}] 프로모션 진입: {target_title}")
         try:
-            if not is_js and target_href:
-                full_url = target_href
-                if full_url.startswith("/"):
-                    full_url = "https://www.amway.co.kr" + full_url
-                
-                print(f"  [{i+1}/{len(promo_items)}] 프로모션 진입 (Direct): {target_title}")
-                await page.goto(full_url, wait_until="networkidle", timeout=30000)
-            else:
-                print(f"  [{i+1}/{len(promo_items)}] 프로모션 진입 (Fallback): {target_title}")
-                await page.goto("https://www.amway.co.kr/notifications/promotion", wait_until="networkidle", timeout=30000)
-                await asyncio.sleep(1)
-
-                current_candidates = await page.query_selector_all("a")
-                valid_links = []
-                for l in current_candidates:
-                    t = await l.inner_text()
-                    t = t.strip()
-                    if t and len(t) > 5 and ("기간 :" in t or "프로모션" in t):
-                        valid_links.append(l)
-
-                if i < len(valid_links):
-                    await valid_links[i].click()
-                    await page.wait_for_load_state("networkidle", timeout=30000)
-                else:
-                    print("    -> 요소 재탐색 실패")
-                    continue
+            await detail_page.goto(target_url, wait_until="networkidle", timeout=30000)
 
             # --- 상세 페이지 도착 ---
             
-            await page.mouse.wheel(0, 3000)
+            # 잠시 스크롤
+            await detail_page.mouse.wheel(0, 3000)
             await asyncio.sleep(1)
 
-            products = await page.query_selector_all(".product_item")
+            # 상품 카드 (.product_item) 우선 검색 (일반적인 상품 목록 패턴)
+            products = await detail_page.query_selector_all(".product_item")
             if not products:
-                products = await page.query_selector_all(".box_product")
+                products = await detail_page.query_selector_all(".box_product")
 
             if products:
                 for product in products:
@@ -348,7 +345,8 @@ async def crawl_promotions(page):
                     except: continue
             
             else:
-                shop_links = await page.query_selector_all("a[href*='/shop/']")
+                # /shop/ 링크를 모두 찾음
+                shop_links = await detail_page.query_selector_all("a[href*='/shop/']")
                 for sl in shop_links:
                     try:
                         href = await sl.get_attribute("href")
@@ -382,7 +380,20 @@ async def crawl_promotions(page):
 
         except Exception as e:
             print(f"    -> 상세 페이지 로드 실패: {e}")
+            # Try to recover detail page in case it crashed
+            try:
+                await detail_page.close()
+            except: pass
             
+            try:
+                detail_page = await page.context.new_page()
+            except:
+                print("    -> Critical: Failed to recreate detail page.")
+
+    try:
+        await detail_page.close()
+    except: pass
+
     print(f"  Found {len(promo_data)} products in promotions.")
     return promo_data
 
