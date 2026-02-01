@@ -6,6 +6,8 @@ from playwright.sync_api import sync_playwright
 import datetime
 
 DATA_FILE = "amway_products_full.json"
+PV_REGEX = re.compile(r"PV\s*:\s*([\d,]+)")
+BV_REGEX = re.compile(r"BV\s*:\s*([\d,]+)")
 
 def discover_category_tabs(page):
     """
@@ -178,11 +180,11 @@ def crawl_category(page, category_info):
             
             # If still 0, try regex fallback (though likely unnecessary now)
             if pv == "0":
-                pv_match = re.search(r"PV\s*:\s*([\d,]+)", status_text)
+                pv_match = PV_REGEX.search(status_text)
                 if pv_match: pv = pv_match.group(1).replace(",", "")
 
             if bv == "0":
-                bv_match = re.search(r"BV\s*:\s*([\d,]+)", status_text)
+                bv_match = BV_REGEX.search(status_text)
                 if bv_match: bv = bv_match.group(1).replace(",", "")
             
             # --- [Custom Logic] 스마트 오더 분류 처리 ---
@@ -383,10 +385,10 @@ def crawl_promotions(page):
                         # 텍스트에서 추출 시도 (Fallback)
                         if pv == "0":
                             status_text = product.inner_text()
-                            pv_match = re.search(r"PV\s*:\s*([\d,]+)", status_text)
+                            pv_match = PV_REGEX.search(status_text)
                             if pv_match: pv = pv_match.group(1).replace(",", "")
                             
-                            bv_match = re.search(r"BV\s*:\s*([\d,]+)", status_text)
+                            bv_match = BV_REGEX.search(status_text)
                             if bv_match: bv = bv_match.group(1).replace(",", "")
 
                         # Image
