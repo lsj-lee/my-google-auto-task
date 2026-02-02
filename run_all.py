@@ -3,6 +3,7 @@ import time
 import subprocess
 import os
 import datetime
+import asyncio
 
 class Logger:
     """화면 출력과 파일 저장을 동시에 하는 로거"""
@@ -68,7 +69,7 @@ def main():
     
     try:
         # sheet_manager.append_data 함수를 콜백으로 넘김
-        amway_full_crawler.run_full_crawl(data_callback=sheet_manager.append_data)
+        asyncio.run(amway_full_crawler.run_full_crawl(data_callback=sheet_manager.append_data))
             
     except Exception as e:
         print(f"\n!!! 크롤링 중 오류 발생: {e}")
