@@ -1,5 +1,7 @@
 import gspread
 import time
+import random
+from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 import os
 
@@ -14,68 +16,78 @@ SERVICE_ACCOUNT_FILE = 'service_account.json'
 class SheetManager:
     def __init__(self):
         print("구글 시트 연결 중...")
-        try:
-            self.creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-            self.gc = gspread.authorize(self.creds)
-            self.sh = self.gc.open("통합DB")
-            self.worksheet = self.sh.get_worksheet(0)
-            
-            # 변경 내역 기록을 위한 시트
-            try:
-                self.history_sheet = self.sh.worksheet("변경내역")
-            except:
-                self.history_sheet = self.sh.add_worksheet(title="변경내역", rows=1000, cols=10)
-                self.history_sheet.append_row(["날짜", "유형", "제품명", "세부내용", "기존값", "변경값"])
 
-            # 1. 기존 데이터 백업 및 AI 데이터(태그/설명) 보존
-            print("기존 데이터 분석 중... (데이터 양에 따라 1~2분 이상 소요될 수 있습니다. 잠시만 기다려주세요...)")
-            self.old_data = {}
-            self.ai_data = {}
-            
+        # Retry logic for connection
+        max_retries = 5
+        for i in range(max_retries):
             try:
-                # D6:N 범위 읽기 최적화
-                # get_all_values() 대신 필요한 범위만 가져와서 메모리와 네트워크 대역폭을 절약합니다.
-                # D열(index 0) ~ N열(index 10)까지가 반환됩니다.
-                all_rows = self.worksheet.get('D6:N')
+                self.creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+                self.gc = gspread.authorize(self.creds)
+                self.sh = self.gc.open("통합DB")
+                self.worksheet = self.sh.get_worksheet(0)
                 
-                for row in all_rows:
-                    # D열(index 0) ~ N열(index 10)까지가 유효 데이터 범위
-                    # row 길이가 충분한지 확인. F열(Name)은 반환된 row의 index 2에 위치합니다.
-                    if len(row) > 2 and row[2]: # F열(index 2, Name)이 존재해야 함
-                        # D6:N 기준 인덱스: D=0, E=1, F=2, ... K=7, L=8 ...
-                        name = row[2] # F열
+                # 변경 내역 기록을 위한 시트
+                try:
+                    self.history_sheet = self.sh.worksheet("변경내역")
+                except:
+                    self.history_sheet = self.sh.add_worksheet(title="변경내역", rows=1000, cols=10)
+                    self.history_sheet.append_row(["날짜", "유형", "제품명", "세부내용", "기존값", "변경값"])
 
-                        tags = row[1] if len(row) > 1 else ""  # E열
-                        desc = row[7] if len(row) > 7 else "" # K열
-
-                        self.ai_data[name] = {
-                            "tags": tags,
-                            "desc": desc
-                        }
-
-                        price = row[8] if len(row) > 8 else "0" # L열
-                        self.old_data[name] = {
-                            "price": price
-                        }
+                break # Success
             except Exception as e:
-                print(f"  (기존 데이터 읽기 실패: {e})")
+                if i == max_retries - 1:
+                    print(f"시트 연결 오류 (최종 실패): {e}")
+                    raise e
 
-            # 2. Start Row: D6
-            self.current_row = 6
-            
-            # 3. Initialization: Clear data (D~N열) -> Skip for safety (Incremental Overwrite)
-            # print("시트 초기화 중 (D6:N5000)...")
-            # try:
-            #     self.worksheet.batch_clear(["D6:N5000"])
-            # except:
-            #     print("  (초기화 건너뜀)")
-            
-            # 4. New Data Accumulator
-            self.new_data_check = {}
+                wait_time = (2 ** i) + random.uniform(0, 1)
+                print(f"시트 연결 실패 ({e}). {wait_time:.1f}초 후 재시도 ({i+1}/{max_retries})...")
+                time.sleep(wait_time)
 
+        # 1. 기존 데이터 백업 및 AI 데이터(태그/설명) 보존
+        print("기존 데이터 분석 중... (데이터 양에 따라 1~2분 이상 소요될 수 있습니다. 잠시만 기다려주세요...)")
+        self.old_data = {}
+        self.ai_data = {}
+
+        try:
+            # D6:N 범위 읽기 최적화
+            # get_all_values() 대신 필요한 범위만 가져와서 메모리와 네트워크 대역폭을 절약합니다.
+            # D열(index 0) ~ N열(index 10)까지가 반환됩니다.
+            all_rows = self.worksheet.get('D6:N')
+            
+            for row in all_rows:
+                # D열(index 0) ~ N열(index 10)까지가 유효 데이터 범위
+                # row 길이가 충분한지 확인. F열(Name)은 반환된 row의 index 2에 위치합니다.
+                if len(row) > 2 and row[2]: # F열(index 2, Name)이 존재해야 함
+                    # D6:N 기준 인덱스: D=0, E=1, F=2, ... K=7, L=8 ...
+                    name = row[2] # F열
+
+                    tags = row[1] if len(row) > 1 else ""  # E열
+                    desc = row[7] if len(row) > 7 else "" # K열
+
+                    self.ai_data[name] = {
+                        "tags": tags,
+                        "desc": desc
+                    }
+
+                    price = row[8] if len(row) > 8 else "0" # L열
+                    self.old_data[name] = {
+                        "price": price
+                    }
         except Exception as e:
-            print(f"시트 연결 오류: {e}")
-            raise e
+            print(f"  (기존 데이터 읽기 실패: {e})")
+
+        # 2. Start Row: D6
+        self.current_row = 6
+
+        # 3. Initialization: Clear data (D~N열) -> Skip for safety (Incremental Overwrite)
+        # print("시트 초기화 중 (D6:N5000)...")
+        # try:
+        #     self.worksheet.batch_clear(["D6:N5000"])
+        # except:
+        #     print("  (초기화 건너뜀)")
+
+        # 4. New Data Accumulator
+        self.new_data_check = {}
 
     def append_data(self, data_dict):
         """
@@ -140,21 +152,26 @@ class SheetManager:
         end_row = self.current_row + len(rows) - 1
         range_str = f"D{self.current_row}:N{end_row}"
         
-        try:
-            # gspread v6 compatibility: Use keyword arguments
-            self.worksheet.update(range_name=range_str, values=rows, value_input_option='USER_ENTERED')
-            print(f"  -> {len(rows)}개 데이터 입력 완료 ({range_str})")
-            
-            self.current_row += len(rows)
-            
-        except Exception as e:
-            print(f"  !!! 시트 쓰기 오류: {e}")
-            time.sleep(5)
+        # Retry logic for writing
+        max_write_retries = 5
+        for i in range(max_write_retries):
             try:
+                # gspread v6 compatibility: Use keyword arguments
                 self.worksheet.update(range_name=range_str, values=rows, value_input_option='USER_ENTERED')
+                print(f"  -> {len(rows)}개 데이터 입력 완료 ({range_str})")
+
                 self.current_row += len(rows)
-            except:
-                print("  !!! 재시도 실패. 건너뜁니다.")
+                break
+            except Exception as e:
+                # 503 Service Unavailable or others
+                if i == max_write_retries - 1:
+                    print(f"  !!! 시트 쓰기 실패 (최종): {e}")
+                    print("  !!! 데이터가 누락되었습니다.")
+                else:
+                    wait_time = (2 ** i) + random.uniform(0, 1)
+                    print(f"  !!! 시트 쓰기 오류: {e}")
+                    print(f"  -> {wait_time:.1f}초 후 재시도 ({i+1}/{max_write_retries})...")
+                    time.sleep(wait_time)
 
     def finalize_and_report_changes(self):
         """
