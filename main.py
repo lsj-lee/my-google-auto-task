@@ -99,25 +99,23 @@ def get_ai_response_batch(product_list):
     prompt_text = f"""
     대상 제품: {names_text}
     
-    [작성 규칙: 열 E (태그) - 검색어 유의어 확장 전략]
-    1. 핵심 전략: '문장형 태그' 대신 소비자가 검색할 수 있는 모든 '단어(유의어)'를 나열하세요.
-    2. 형식: [메인용도] #단어1 #단어2 #단어3 #단어4 #단어5 ... (최소 8개 이상)
-    3. 키워드 구성 (잘게 쪼개기):
-       - 부위/증상: #무릎 #관절 #연골 #통증 #시큰거림 (O) vs #무릎이아파요 (X)
-       - 대상/상황: #부모님 #효도 #등산 #계단 #할머니 #할아버지
-       - 특징/효과: #N아세틸 #글루코사민 #MSM #하루한알
-    4. 글자 제한: 2~4글자 이내의 짧은 명사형으로 작성 (검색 적중률 극대화).
+    [작성 규칙: 열 E (분류/성분) - 핵심 성분 및 구성 요소 상세화]
+    1. 단순히 제품군만 적지 말고, 제품의 핵심 성분과 구성 요소를 상세히 포함하세요.
+    2. 예시: '더블엑스' → 비타민 A, B, C, D, E, K, 엽산, 비오틴 및 20가지 식물 농축물 성분 포함.
+    3. 예시: '화장품' → 살리실산(BHA), 히알루론산, 세라마이드 등 핵심 유효 성분 명시.
+    4. 해시태그(#)는 절대 사용하지 마세요. 문장이나 쉼표로 구분된 성분 나열 형식을 사용하세요.
     
-    [작성 규칙: 열 K (설명) - '왜 좋은가요?'에 대한 친절한 답변]
-    - 소비자가 "이 제품이 왜 좋아요?"라고 물었을 때 대답하듯 작성하세요.
-    - 딱딱한 표현("입증됨") 대신, 혜택을 부드럽게 설명하세요("~를 채워줍니다").
-    - 내용: [특화성분/원료]가 [어떤 고민]을 해결하여 [어떤 기분 좋은 변화]를 주는지 설명.
-    - 예시: "뉴트리라이트 농장에서 수확한 14가지 비타민을 최적의 비율로 담아, 불규칙한 식습관으로 지친 몸에 균형 잡힌 영양과 활력을 빈틈없이 채워줍니다."
+    [작성 규칙: 열 K (설명) - 2단락 구조 및 신중한 문체]
+    1. 구조: 두 개의 단락으로 나누어 작성하세요. (줄바꿈 필수)
+       - 첫 번째 단락: 제품에 대한 간결하고 매력적인 소개글 (2~3줄).
+       - 두 번째 단락: 해당 성분이 작용하는 과학적 원리 및 논문적 근거를 요약하여 기술.
+    2. 문체: AI 특유의 확정적 말투(예: ~이다, 확실하다)를 지양하고, 신중하고 객관적인 문체를 사용하세요.
+       - 권장 표현: "~에 도움을 줄 수 있는 것으로 알려져 있다", "~한 원리가 보고된 바 있다", "~할 가능성이 있다", "~연구 결과가 있다"
     
     [출력 형식]
     반드시 다음 JSON 배열 형식으로만 출력하세요:
     [
-        {{ "name": "제품명", "tags": "[용도] #키워드1 #키워드2 ...", "description": "친절한 답변형 설명" }},
+        {{ "name": "제품명", "tags": "성분1, 성분2 및 성분3 포함...", "description": "첫번째 단락 소개글...\\n\\n두번째 단락 과학적 근거..." }},
         ...
     ]
     """
@@ -132,13 +130,10 @@ def get_ai_response_batch(product_list):
                     {"role": "system", "content": "You are a helpful assistant. Output purely JSON."},
                     {"role": "user", "content": prompt_text}
                 ],
-                response_format={"type": "json_object"} # gpt-4o-mini supports json_object but usually for single object. for list, standard text is safer or wrapped in object
+                response_format={"type": "json_object"}
             )
-            # OpenAI json_object mode requires "JSON" word in prompt and usually returns { ... }. 
-            # Safe way: wrap list in a key
             prompt_text += "\n\nOutput format: { \"products\": [ ... ] }"
             
-            # Re-call with wrapped structure instruction
             response = openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
@@ -152,13 +147,10 @@ def get_ai_response_batch(product_list):
             return data.get("products", [])
 
         elif AI_PROVIDER == 'google':
-            # 사용 가능한 모델 리스트 (우선순위 순)
-            # 2.5-flash를 먼저 시도하고, 실패하면 2.0-flash로 전환 (Fallback)
             candidate_models = ['gemini-2.5-flash', 'gemini-2.0-flash']
             
             for model_name in candidate_models:
                 try:
-                    # print(f"  (모델 시도: {model_name})") # 디버깅용 (너무 시끄러울 수 있어 주석 처리)
                     model = genai.GenerativeModel(model_name)
                     
                     response = model.generate_content(
@@ -167,20 +159,17 @@ def get_ai_response_batch(product_list):
                     )
 
                     text = response.text.strip()
-                    # Cleanup markdown
                     if text.startswith("```json"): text = text[7:]
                     if text.startswith("```"): text = text[3:]
                     if text.endswith("```"): text = text[:-3]
                     text = text.strip()
                     
-                    # Check if wrapped or list
                     try:
                         data = json.loads(text)
                         if isinstance(data, list):
                             return data
                         elif isinstance(data, dict) and "products" in data:
                             return data["products"]
-                        # Fallback: try to find list in dict values
                         for v in data.values():
                             if isinstance(v, list): return v
                         return []
@@ -188,15 +177,13 @@ def get_ai_response_batch(product_list):
                         return []
                         
                 except ResourceExhausted:
-                    raise # 할당량 초과는 즉시 상위로 전파 (모델 바꿔도 소용없음)
+                    raise
                 except Exception as e:
-                    # 그 외 에러는 다음 모델 시도
-                    # 마지막 모델이었다면 에러 출력
                     if model_name == candidate_models[-1]:
                         print(f"\n❌ [{AI_PROVIDER}] 모든 모델 요청 실패: {e}")
                         return None
                     else:
-                        continue # 다음 모델로 재시도
+                        continue
 
     except ResourceExhausted:
         raise
@@ -237,165 +224,145 @@ def main():
 
     print(f"✅ '{spreadsheet_name}'의 '{SHEET_NAME}' 시트 작업을 시작합니다...")
 
-    # 3. 데이터 로드 및 업데이트용 리스트 준비
-    # [최적화] 전체 시트를 읽는 대신 필요한 열(D~K)만 가져옵니다.
+    # 3. 데이터 로드
     range_query = f"D{START_ROW}:K"
     print(f"   - 데이터 읽는 중... ({range_query})")
     all_values = worksheet.get(range_query)
     
-    batch_data = [] # 시트에 한 번에 쓸 데이터 (range, values)
-    pending_products = [] # AI에게 보낼 대기열 [{'row':..., 'name':...}]
+    # 4. 작업 분류 (채우기 vs 업데이트)
+    fill_queue = []
+    update_queue = []
     
-    update_count = 0
-    api_request_count = 0 # 실제 API 호출 횟수 카운트
+    print("   - 데이터 분석 및 작업 분류 중...")
+    for i, row_values in enumerate(all_values):
+        row_num = START_ROW + i
 
-    processed_start = None
-    processed_end = None
-    last_request_time = 0 # 마지막 API 요청 시간
+        if len(row_values) < 8:
+            row_values += [''] * (8 - len(row_values))
+
+        category = row_values[COL_CATEGORY_IDX].strip()
+        product_name = row_values[COL_PRODUCT_NAME_IDX].strip()
+        current_tags = row_values[COL_TAGS_IDX].strip()
+        current_desc = row_values[COL_DESC_IDX].strip()
+
+        # [예외] '이벤트' 카테고리 건너뜀
+        if "이벤트" in category:
+             continue
+        if not product_name:
+             continue
+
+        is_empty = not current_tags or not current_desc
+
+        needs_update = False
+        if not is_empty:
+            # [조건] 해시태그(#)가 있으면 구버전 데이터 -> 업데이트 대상
+            if '#' in current_tags:
+                needs_update = True
+            # [조건] 설명이 너무 짧거나 2단락(\n\n)이 아니면 -> 업데이트 대상 (휴리스틱)
+            # 확실한 2단락 구분자가 없으면 업데이트 대상으로 간주
+            elif '\n' not in current_desc: # 간단한 체크
+                needs_update = True
+
+        if is_empty:
+            fill_queue.append({'row': row_num, 'name': product_name, 'type': 'new'})
+        elif needs_update:
+            update_queue.append({'row': row_num, 'name': product_name, 'type': 'update'})
+
+    print(f"   - 신규 작성 필요: {len(fill_queue)}건")
+    print(f"   - 업데이트 필요: {len(update_queue)}건")
+
+    # 5. 작업 실행
+    # 우선순위: 1. 빈칸 채우기 -> 2. 업데이트
+    total_queues = [('신규 채우기', fill_queue), ('업데이트', update_queue)]
+
+    api_request_count = 0
+    new_filled_count = 0
+    updated_count = 0
+    last_request_time = 0
+
+    batch_data = []
 
     try:
-        for i, row_values in enumerate(all_values):
-            if update_count >= MAX_UPDATES:
-                break
-            
-            # [안전장치] 일일 API 요청 한도 도달 시 중단
-            if api_request_count >= MAX_DAILY_REQUESTS:
-                print(f"\n✋ [안전장치 작동] 일일 최대 요청 횟수({MAX_DAILY_REQUESTS}회)에 도달했습니다.")
-                print("   - 내일 오전 9시에 사용량이 초기화되면 다시 실행됩니다.")
-                break
-
-            row_num = START_ROW + i
-            
-            # D(0) ~ K(7) 까지 인덱스를 사용하므로 최소 8개 필요
-            if len(row_values) < 8:
-                row_values += [''] * (8 - len(row_values))
-
-            category = row_values[COL_CATEGORY_IDX].strip()
-            product_name = row_values[COL_PRODUCT_NAME_IDX].strip()
-            current_tags = row_values[COL_TAGS_IDX].strip()
-            current_desc = row_values[COL_DESC_IDX].strip()
-
-            # 이어하기 로직
-            if product_name and not current_tags and not current_desc:
-                # [예외] '이벤트' 카테고리 건너뜀
-                if "이벤트" in category:
-                     continue
-
-                if processed_start is None:
-                    processed_start = row_num
-                processed_end = row_num
-
-                # 대기열에 추가
-                pending_products.append({'row': row_num, 'name': product_name})
+        for job_name, queue in total_queues:
+            if not queue:
+                continue
                 
-                # 배치 사이즈가 차면 AI 요청
-                if len(pending_products) >= BATCH_SIZE:
-                    print(f"[{pending_products[0]['row']}행 ~ {pending_products[-1]['row']}행] {len(pending_products)}개 제품 일괄 처리 중...")
+            print(f"\n>>> [{job_name}] 작업을 시작합니다. (대상: {len(queue)}건)")
+
+            # Batch processing
+            for i in range(0, len(queue), BATCH_SIZE):
+                if api_request_count >= MAX_DAILY_REQUESTS:
+                    print(f"\n✋ [안전장치 작동] 일일 최대 요청 횟수({MAX_DAILY_REQUESTS}회)에 도달했습니다.")
+                    break
                     
-                    try:
-                        api_request_count += 1 # 요청 횟수 증가
-                        results = get_ai_response_batch(pending_products)
+                batch_items = queue[i : i + BATCH_SIZE]
+                print(f"   [{job_name}] {batch_items[0]['row']}행 ~ {batch_items[-1]['row']}행 처리 중... ({len(batch_items)}개)")
+
+                try:
+                    api_request_count += 1
+                    results = get_ai_response_batch(batch_items)
+
+                    if results:
+                        for idx, item in enumerate(results):
+                            if idx < len(batch_items):
+                                target = batch_items[idx]
+                                tags = item.get("tags", "")
+                                desc = item.get("description", "")
+
+                                batch_data.append({'range': f'E{target["row"]}', 'values': [[tags]]})
+                                batch_data.append({'range': f'K{target["row"]}', 'values': [[desc]]})
+
+                                if target['type'] == 'new':
+                                    new_filled_count += 1
+                                else:
+                                    updated_count += 1
                         
-                        if results:
-                            # 결과 매핑
-                            # AI가 순서를 보장한다고 가정하지만, 이름으로 매칭하는 것이 더 안전함
-                            # 여기서는 순서대로 매핑 (AI 프롬프트에서 순서 유지 요청함)
-                            for idx, item in enumerate(results):
-                                if idx < len(pending_products):
-                                    target = pending_products[idx]
-                                    tags = item.get("tags", "")
-                                    desc = item.get("description", "")
-                                    
-                                    batch_data.append({'range': f'E{target["row"]}', 'values': [[tags]]})
-                                    batch_data.append({'range': f'K{target["row"]}', 'values': [[desc]]})
-                                    update_count += 1
-                            
-                            print(f"  -> {len(results)}건 처리 완료")
-                            pending_products = [] # 초기화
-                            
-                            # [안전장치] RPM 제한 준수 (동적 대기)
-                            # 대기하기 전에 현재까지 작업한 내용을 시트에 저장 (데이터 보호)
-                            if batch_data:
-                                try:
-                                    print("  -> 데이터 시트 저장 중...")
-                                    worksheet.batch_update(batch_data)
-                                    batch_data = [] # 저장 후 초기화
-                                    print("  -> 저장 완료")
-                                except Exception as e:
-                                    print(f"  -> ⚠️ 중간 저장 실패: {e} (메모리에 보관 후 나중에 재시도)")
-
-                            # 다음 요청까지 남은 시간 계산
-                            elapsed = time.time() - last_request_time
-                            wait_time = max(0, MIN_REQUEST_INTERVAL - elapsed)
-
-                            if wait_time > 0:
-                                print(f"  -> RPM 제한 준수를 위해 {wait_time:.1f}초 대기합니다...")
-                                time.sleep(wait_time)
-
-                            last_request_time = time.time()
-                        else:
-                            print("  -> AI 응답이 비어있습니다. (건너뜀)")
-                            pending_products = [] 
-
-                    except ResourceExhausted:
-                        print("\n⚠️ [경고] 오늘의 무료 사용량을 모두 소모했습니다!")
-                        # 현재 대기열 처리는 실패했으므로 저장하지 않음 (다음에 다시 시도)
-                        pending_products = [] 
+                        print(f"     -> 처리 완료")
                         
-                        reset_time_msg = calculate_time_until_reset()
-                        print(f"🕒 {reset_time_msg} 후에 다시 실행 가능합니다.")
-                        
-                        # 지금까지 모은 batch_data는 저장
+                        # 중간 저장
                         if batch_data:
-                             try:
-                                 worksheet.batch_update(batch_data)
-                                 print("✅ 중간 데이터 저장 완료!")
-                             except: pass
-                        sys.exit(100)
+                            try:
+                                worksheet.batch_update(batch_data)
+                                batch_data = []
+                            except Exception as e:
+                                print(f"     -> ⚠️ 중간 저장 실패: {e} (메모리 보관)")
 
-        # 반복문 종료 후 남은 대기열 처리
-        if pending_products:
-            print(f"[{pending_products[0]['row']}행 ~ {pending_products[-1]['row']}행] 남은 {len(pending_products)}개 제품 처리 중...")
-            try:
-                results = get_ai_response_batch(pending_products)
-                if results:
-                    for idx, item in enumerate(results):
-                        if idx < len(pending_products):
-                            target = pending_products[idx]
-                            tags = item.get("tags", "")
-                            desc = item.get("description", "")
-                            batch_data.append({'range': f'E{target["row"]}', 'values': [[tags]]})
-                            batch_data.append({'range': f'K{target["row"]}', 'values': [[desc]]})
-                            update_count += 1
-                    print(f"  -> {len(results)}건 처리 완료")
-            except ResourceExhausted:
-                print("\n⚠️ [경고] 막바지 작업 중 할당량 소모!")
-                pass # 그냥 저장 루틴으로 이동
+                        # RPM 대기
+                        elapsed = time.time() - last_request_time
+                        wait_time = max(0, MIN_REQUEST_INTERVAL - elapsed)
+                        if wait_time > 0:
+                            time.sleep(wait_time)
+                        last_request_time = time.time()
+
+                    else:
+                        print("     -> AI 응답 없음")
+
+                except ResourceExhausted:
+                    print("\n⚠️ [경고] 오늘의 무료 사용량을 모두 소모했습니다!")
+                    raise # Loop 탈출
+
+    except ResourceExhausted:
+        # 종료 전 안내 메시지 계산
+        reset_time_msg = calculate_time_until_reset()
+        print(f"🕒 {reset_time_msg} 후에 다시 실행 가능합니다.")
 
     except KeyboardInterrupt:
         print("\n사용자에 의해 작업이 중단되었습니다.")
     except Exception as e:
         print(f"\n알 수 없는 오류 발생: {e}")
     finally:
-        # 4. 모아둔 데이터를 한 번에 업데이트 (에러 발생 시에도 저장)
-        # 이미 위에서 ResourceExhausted로 저장하고 나간 경우는 제외해야 하지만
-        # batch_data가 남아있다면 저장 시도 (중복 저장 방지는 batch_data.clear() 등으로 가능하나 여기서는 간단히 처리)
+        # 잔여 데이터 저장
         if batch_data:
-            print(f"\n현재까지 작업한 {len(batch_data)//2}건(태그+설명)의 데이터를 시트에 안전하게 기록 중...")
+            print(f"\n남은 {len(batch_data)//2}건의 데이터를 시트에 저장 중...")
             try:
                 worksheet.batch_update(batch_data)
-                print("✅ 시트 저장 완료!")
+                print("✅ 저장 완료!")
             except Exception as e:
-                print(f"❌ 시트 저장 중 오류 발생: {e}")
-            batch_data.clear() # 중복 방지
+                print(f"❌ 저장 실패: {e}")
 
-        if processed_start and processed_end:
-            print(f"\n[AI 작업 요약]")
-            print(f"   - 처리 범위: {processed_start}행 ~ {processed_end}행")
-            print(f"   - 성공 건수: {update_count}건")
-        else:
-            print("\n[AI 작업 요약] 처리된 항목이 없습니다. (모두 완료되었거나 API가 제한됨)")
-
+        print("\n[AI 작업 최종 보고]")
+        print(f"   - 신규 채워진 행: {new_filled_count}건")
+        print(f"   - 수정된 기존 행: {updated_count}건")
         print("프로그램을 종료합니다.")
 
 if __name__ == "__main__":
