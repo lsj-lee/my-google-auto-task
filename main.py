@@ -33,6 +33,7 @@ COL_DESC_IDX = 7          # K열 (Relative 7)
 # 테스트 제한 해제 (무제한 실행)
 MAX_UPDATES = float('inf') 
 BATCH_SIZE = 5 # 한 번에 AI에게 물어볼 제품 수 (5~10 권장)
+SHEET_SAVE_THRESHOLD = 20 # 시트 API 호출을 줄이기 위해 누적할 제품 수
 
 # [안전장치] 일일 요청 제한 (Gemini 무료: 하루 250회)
 # 여유를 두고 240회에서 멈추도록 설정
@@ -323,8 +324,8 @@ def main():
                         
                         print(f"     -> 처리 완료")
                         
-                        # 중간 저장
-                        if batch_data:
+                        # 중간 저장 (API 호출 최적화: 임계치 이상 쌓였을 때만 저장)
+                        if len(batch_data) >= SHEET_SAVE_THRESHOLD * 2:
                             try:
                                 worksheet.batch_update(batch_data)
                                 batch_data = []
@@ -355,7 +356,7 @@ def main():
     except Exception as e:
         print(f"\n알 수 없는 오류 발생: {e}")
     finally:
-        # 잔여 데이터 저장
+        # 잔여 데이터 저장 (마지막 루프 후 남은 데이터 처리)
         if batch_data:
             print(f"\n남은 {len(batch_data)//2}건의 데이터를 시트에 저장 중...")
             try:
