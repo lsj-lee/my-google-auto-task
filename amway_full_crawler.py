@@ -50,11 +50,18 @@ async def discover_category_tabs(page):
     print(f"총 {len(categories)}개의 카테고리 탭 발견: {[c['name'] for c in categories]}")
     return categories
 
-def load_previous_state():
+async def load_previous_state():
+    """
+    Asynchronously loads the previous state from the JSON file.
+    Uses run_in_executor to avoid blocking the event loop during file I/O.
+    """
     if os.path.exists(DATA_FILE):
         try:
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            loop = asyncio.get_running_loop()
+            def _read_file():
+                with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            return await loop.run_in_executor(None, _read_file)
         except:
             return {}
     return {}
