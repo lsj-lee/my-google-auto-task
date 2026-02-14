@@ -63,6 +63,108 @@ def save_current_state(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+async def _extract_products_optimized(page, cat_name):
+    return await page.evaluate(r"""(cat_name) => {
+        const products = Array.from(document.querySelectorAll(".product_item"));
+        const items = products.length ? products : Array.from(document.querySelectorAll(".box_product"));
+        const results = {};
+
+        const pvRegex = /PV\s*:\s*([\d,]+)/;
+        const bvRegex = /BV\s*:\s*([\d,]+)/;
+
+        items.forEach(product => {
+            try {
+                // 1. Name
+                let nameEl = product.querySelector(".text_product-title");
+                if (!nameEl) nameEl = product.querySelector(".product_name");
+                let name = nameEl ? nameEl.innerText.trim() : "Unknown Name";
+
+                // 2. Link & ID
+                let linkEl = product.querySelector("a");
+                let link = linkEl ? linkEl.getAttribute("href") : "";
+                if (link && link.startsWith("/")) {
+                    link = "https://www.amway.co.kr" + link;
+                }
+
+                let productId = link ? link.split('/').pop() : name;
+
+                // 3. Price
+                let priceEl = product.querySelector(".text_price-data");
+                if (!priceEl) priceEl = product.querySelector(".price");
+                let price = priceEl ? priceEl.innerText.trim() : "0";
+
+                // 4. Image
+                let imgEl = product.querySelector("img");
+                let imgSrc = imgEl ? imgEl.getAttribute("src") : "";
+                if (imgSrc && imgSrc.startsWith("/")) {
+                    imgSrc = "https://www.amway.co.kr" + imgSrc;
+                }
+
+                // 5. Status
+                let statusText = product.innerText;
+                let status = "판매중";
+                if (statusText.includes("일시품절")) status = "일시품절";
+                else if (statusText.includes("품절")) status = "품절";
+                else if (statusText.includes("단종")) status = "단종";
+
+                // 6. PV / BV
+                let pv = "0";
+                let bv = "0";
+
+                let dataEl = product.querySelector("input[name='productTealiumTagInfo']");
+                if (!dataEl) {
+                    dataEl = product.querySelector(".js-addtocart-v2");
+                }
+
+                if (dataEl) {
+                    let rawPv = dataEl.getAttribute("data-product-point-value");
+                    let rawBv = dataEl.getAttribute("data-product-business-volume");
+
+                    if (rawPv) {
+                        let parsed = parseInt(parseFloat(rawPv));
+                        if (!isNaN(parsed)) pv = String(parsed);
+                    }
+                    if (rawBv) {
+                        let parsed = parseInt(parseFloat(rawBv));
+                        if (!isNaN(parsed)) bv = String(parsed);
+                    }
+                }
+
+                if (pv === "0") {
+                    let match = statusText.match(pvRegex);
+                    if (match) pv = match[1].replace(/,/g, "");
+                }
+
+                if (bv === "0") {
+                    let match = statusText.match(bvRegex);
+                    if (match) bv = match[1].replace(/,/g, "");
+                }
+
+                // Smart Order Handling
+                let finalCategory = cat_name;
+                if (name.includes("스마트 오더") || name.includes("스마트오더")) {
+                    finalCategory = "스마트 오더";
+                }
+
+                results[productId] = {
+                    "id": productId,
+                    "name": name,
+                    "price": price,
+                    "status": status,
+                    "link": link,
+                    "image": imgSrc,
+                    "category": finalCategory,
+                    "sub_category": "",
+                    "pv": pv,
+                    "bv": bv
+                };
+            } catch (e) {
+                // continue
+            }
+        });
+        return results;
+    }""", cat_name)
+
 async def crawl_category(page, category_info):
     cat_name = category_info['name']
     url = category_info['url']
@@ -112,94 +214,10 @@ async def crawl_category(page, category_info):
             break
         last_height = new_height
 
-    products = await page.query_selector_all(".product_item")
-    if not products:
-        products = await page.query_selector_all(".box_product")
-        
-    print(f"  Found {len(products)} products in {cat_name}.")
+    # Optimized extraction
+    category_data = await _extract_products_optimized(page, cat_name)
+    print(f"  Found {len(category_data)} products in {cat_name}.")
     
-    category_data = {}
-
-    for product in products:
-        try:
-            # 1. Name
-            name_el = await product.query_selector(".text_product-title")
-            if not name_el: name_el = await product.query_selector(".product_name")
-            name = await name_el.inner_text() if name_el else "Unknown Name"
-            name = name.strip()
-
-            # 2. Link & ID
-            link_el = await product.query_selector("a")
-            link = await link_el.get_attribute("href") if link_el else ""
-            if link and link.startswith("/"):
-                link = "https://www.amway.co.kr" + link
-            
-            product_id = link.split('/')[-1] if link else name
-
-            # 3. Price
-            price_el = await product.query_selector(".text_price-data")
-            if not price_el: price_el = await product.query_selector(".price")
-            price = await price_el.inner_text() if price_el else "0"
-            price = price.strip()
-
-            # 4. Image
-            img_el = await product.query_selector("img")
-            img_src = await img_el.get_attribute("src") if img_el else ""
-            if img_src and img_src.startswith("/"):
-                img_src = "https://www.amway.co.kr" + img_src
-
-            # 5. Status
-            status_text = await product.inner_text()
-            status = "판매중"
-            if "일시품절" in status_text: status = "일시품절"
-            elif "품절" in status_text: status = "품절"
-            elif "단종" in status_text: status = "단종"
-
-            # 6. PV / BV
-            pv = "0"
-            bv = "0"
-            
-            data_el = await product.query_selector("input[name='productTealiumTagInfo']")
-            if not data_el:
-                data_el = await product.query_selector(".js-addtocart-v2")
-            
-            if data_el:
-                raw_pv = await data_el.get_attribute("data-product-point-value")
-                raw_bv = await data_el.get_attribute("data-product-business-volume")
-                
-                if raw_pv:
-                    pv = str(int(float(raw_pv)))
-                if raw_bv:
-                    bv = str(int(float(raw_bv)))
-            
-            if pv == "0":
-                pv_match = PV_REGEX.search(status_text)
-                if pv_match: pv = pv_match.group(1).replace(",", "")
-
-            if bv == "0":
-                bv_match = BV_REGEX.search(status_text)
-                if bv_match: bv = bv_match.group(1).replace(",", "")
-            
-            # Smart Order Handling
-            final_category = cat_name
-            if "스마트 오더" in name or "스마트오더" in name:
-                final_category = "스마트 오더"
-
-            category_data[product_id] = {
-                "id": product_id,
-                "name": name,
-                "price": price,
-                "status": status,
-                "link": link,
-                "image": img_src,
-                "category": final_category,
-                "sub_category": "",
-                "pv": pv,
-                "bv": bv
-            }
-        except:
-            continue
-
     return category_data
 
 async def process_promotion_item(context, item, sem):
