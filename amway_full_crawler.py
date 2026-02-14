@@ -22,8 +22,7 @@ async def discover_category_tabs(page):
 
     categories = []
     
-    # "장바구니 스마트 오더" 또는 "스마트 오더"가 별도 탭으로 존재하는지 확인 필요
-    target_cats = ["영양건강", "뷰티", "퍼스널 케어", "홈리빙", "원포원", "웰니스", "플러스 쇼핑", "장바구니 스마트 오더", "스마트 오더"]
+    target_cats = ["영양건강", "뷰티", "퍼스널 케어", "홈리빙", "원포원", "웰니스", "플러스 쇼핑"]
     
     for cat_name in target_cats:
         try:
