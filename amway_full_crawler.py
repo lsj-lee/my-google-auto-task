@@ -3,7 +3,7 @@ import os
 import time
 import re
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError
 import datetime
 
 DATA_FILE = "amway_products_full.json"
@@ -94,12 +94,14 @@ async def crawl_category(page, category_info):
         await page.mouse.wheel(0, 15000)
         
         # Smart wait for height change
-        start_wait = time.time()
-        while time.time() - start_wait < 2.0:
-            current_height = await page.evaluate("document.body.scrollHeight")
-            if current_height > last_height:
-                break
-            await asyncio.sleep(0.1)
+        try:
+            await page.wait_for_function(
+                "last_height => document.body.scrollHeight > last_height",
+                arg=last_height,
+                timeout=2000
+            )
+        except TimeoutError:
+            pass
 
         # '더보기' 버튼 처리
         try:
