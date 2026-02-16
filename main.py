@@ -126,14 +126,6 @@ def get_ai_response_batch(product_list):
         if AI_PROVIDER == 'openai':
             if not openai_client: return None
             
-            response = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant. Output purely JSON."},
-                    {"role": "user", "content": prompt_text}
-                ],
-                response_format={"type": "json_object"}
-            )
             prompt_text += "\n\nOutput format: { \"products\": [ ... ] }"
             
             response = openai_client.chat.completions.create(
