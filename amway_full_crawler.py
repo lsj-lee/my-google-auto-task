@@ -20,31 +20,47 @@ async def discover_category_tabs(page):
     except:
         return []
 
-    categories = []
-    
     target_cats = ["영양건강", "뷰티", "퍼스널 케어", "홈리빙", "원포원", "웰니스", "플러스 쇼핑"]
     
-    for cat_name in target_cats:
-        try:
-            # 텍스트로 링크 찾기 (exact match or contains)
-            link = (page.get_by_role("link", name=cat_name, exact=True)).first
-            if not await link.is_visible():
-                # exact fail, try generic
-                links = await page.query_selector_all(f"a:has-text('{cat_name}')")
-                for l in links:
-                    if await l.is_visible():
-                        href = await l.get_attribute("href")
-                        if href and "/shop/" in href:
-                            full_url = "https://www.amway.co.kr" + href if href.startswith("/") else href
-                            categories.append({"name": cat_name, "url": full_url})
-                            break
-            else:
-                href = await link.get_attribute("href")
-                if href:
-                    full_url = "https://www.amway.co.kr" + href if href.startswith("/") else href
-                    categories.append({"name": cat_name, "url": full_url})
-        except:
-            continue
+    categories = await page.evaluate("""(target_cats) => {
+        const results = [];
+        const links = Array.from(document.querySelectorAll('a'));
+
+        target_cats.forEach(cat_name => {
+            try {
+                // 1. Try exact match on text
+                let match = links.find(l => {
+                    const text = l.innerText ? l.innerText.trim() : "";
+                    return text === cat_name && l.offsetParent !== null; // offsetParent != null checks visibility roughly
+                });
+
+                // 2. Fallback to contains if not found
+                if (!match) {
+                     const candidates = links.filter(l => {
+                         const text = l.innerText || "";
+                         return text.includes(cat_name) && l.offsetParent !== null;
+                     });
+
+                     for (const l of candidates) {
+                         const href = l.getAttribute('href');
+                         if (href && href.includes('/shop/')) {
+                             match = l;
+                             break;
+                         }
+                     }
+                }
+
+                if (match) {
+                    let href = match.getAttribute('href');
+                    if (href) {
+                        if (href.startsWith('/')) href = "https://www.amway.co.kr" + href;
+                        results.push({name: cat_name, url: href});
+                    }
+                }
+            } catch (e) {}
+        });
+        return results;
+    }""", target_cats)
             
     print(f"총 {len(categories)}개의 카테고리 탭 발견: {[c['name'] for c in categories]}")
     return categories
