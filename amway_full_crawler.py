@@ -267,104 +267,137 @@ async def process_promotion_item(context, item, sem):
             await page.mouse.wheel(0, 3000)
             await asyncio.sleep(1)
 
-            products = await page.query_selector_all(".product_item")
-            if not products:
-                products = await page.query_selector_all(".box_product")
+            # Optimization: Single evaluate call
+            promo_data = await page.evaluate(r"""() => {
+                const results = {};
+                let products = Array.from(document.querySelectorAll(".product_item"));
+                if (!products.length) products = Array.from(document.querySelectorAll(".box_product"));
 
-            if products:
-                for product in products:
-                    try:
-                        name_el = await product.query_selector(".text_product-title")
-                        if not name_el: name_el = await product.query_selector(".product_name")
-                        name = await name_el.inner_text() if name_el else "Unknown Name"
-                        name = name.strip()
+                const pvRegex = /PV\s*:\s*([\d,]+)/;
+                const bvRegex = /BV\s*:\s*([\d,]+)/;
 
-                        link_el = await product.query_selector("a")
-                        p_href = await link_el.get_attribute("href") if link_el else ""
-                        if not p_href or "/shop/" not in p_href: continue
-                        
-                        full_p_url = "https://www.amway.co.kr" + p_href if p_href.startswith("/") else p_href
-                        product_id = full_p_url.split('/')[-1]
+                if (products.length > 0) {
+                    products.forEach(product => {
+                        try {
+                            // Name
+                            let nameEl = product.querySelector(".text_product-title");
+                            if (!nameEl) nameEl = product.querySelector(".product_name");
+                            let name = nameEl ? nameEl.innerText.trim() : "Unknown Name";
 
-                        price_el = await product.query_selector(".text_price-data")
-                        if not price_el: price_el = await product.query_selector(".price")
-                        price = await price_el.inner_text() if price_el else "0"
-                        price = price.strip()
+                            // Link & ID
+                            let linkEl = product.querySelector("a");
+                            let p_href = linkEl ? linkEl.getAttribute("href") : "";
 
-                        pv = "0"
-                        bv = "0"
-                        
-                        data_el = await product.query_selector("input[name='productTealiumTagInfo']")
-                        if not data_el:
-                            data_el = await product.query_selector(".js-addtocart-v2")
-                        
-                        if data_el:
-                            raw_pv = await data_el.get_attribute("data-product-point-value")
-                            raw_bv = await data_el.get_attribute("data-product-business-volume")
+                            if (!p_href || !p_href.includes("/shop/")) return;
+
+                            let full_p_url = p_href.startsWith("/") ? "https://www.amway.co.kr" + p_href : p_href;
+                            let productId = full_p_url.split('/').pop();
+
+                            // Price
+                            let priceEl = product.querySelector(".text_price-data");
+                            if (!priceEl) priceEl = product.querySelector(".price");
+                            let price = priceEl ? priceEl.innerText.trim() : "0";
+
+                            // PV / BV
+                            let pv = "0";
+                            let bv = "0";
                             
-                            if raw_pv: pv = str(int(float(raw_pv)))
-                            if raw_bv: bv = str(int(float(raw_bv)))
-                        
-                        if pv == "0":
-                            status_text = await product.inner_text()
-                            pv_match = PV_REGEX.search(status_text)
-                            if pv_match: pv = pv_match.group(1).replace(",", "")
+                            let dataEl = product.querySelector("input[name='productTealiumTagInfo']");
+                            if (!dataEl) {
+                                dataEl = product.querySelector(".js-addtocart-v2");
+                            }
+
+                            if (dataEl) {
+                                let rawPv = dataEl.getAttribute("data-product-point-value");
+                                let rawBv = dataEl.getAttribute("data-product-business-volume");
+
+                                if (rawPv) {
+                                    let parsed = parseInt(parseFloat(rawPv));
+                                    if (!isNaN(parsed)) pv = String(parsed);
+                                }
+                                if (rawBv) {
+                                    let parsed = parseInt(parseFloat(rawBv));
+                                    if (!isNaN(parsed)) bv = String(parsed);
+                                }
+                            }
                             
-                            bv_match = BV_REGEX.search(status_text)
-                            if bv_match: bv = bv_match.group(1).replace(",", "")
-
-                        img_el = await product.query_selector("img")
-                        img_src = await img_el.get_attribute("src") if img_el else ""
-                        if img_src and img_src.startswith("/"):
-                            img_src = "https://www.amway.co.kr" + img_src
-                        
-                        if product_id not in promo_data:
-                            promo_data[product_id] = {
-                                "id": product_id,
-                                "name": name,
-                                "price": price,
-                                "status": "진행중",
-                                "link": full_p_url,
-                                "image": img_src,
-                                "category": "이벤트",
-                                "sub_category": "",
-                                "pv": pv,
-                                "bv": bv
+                            if (pv === "0" || bv === "0") {
+                               let statusText = product.innerText;
+                               if (pv === "0") {
+                                   let match = statusText.match(pvRegex);
+                                   if (match) pv = match[1].replace(/,/g, "");
+                               }
+                               if (bv === "0") {
+                                   let match = statusText.match(bvRegex);
+                                   if (match) bv = match[1].replace(/,/g, "");
+                               }
                             }
-                    except: continue
-            else:
-                # Link-only check
-                shop_links = await page.query_selector_all("a[href*='/shop/']")
-                for sl in shop_links:
-                    try:
-                        href = await sl.get_attribute("href")
-                        if "/shop/c/" in href: continue
-                        if "/p/" not in href and not href.split('/')[-1].isdigit(): continue
 
-                        full_p_url = "https://www.amway.co.kr" + href if href.startswith("/") else href
-                        product_id = full_p_url.split('/')[-1]
-                        
-                        name = await sl.inner_text()
-                        name = name.strip()
-                        if not name:
-                            img = await sl.query_selector("img")
-                            if img: name = await img.get_attribute("alt") or "이벤트 상품"
-                        if not name: name = "이벤트 상품"
-
-                        if product_id not in promo_data:
-                            promo_data[product_id] = {
-                                "id": product_id,
-                                "name": name,
-                                "price": "0",
-                                "status": "진행중",
-                                "link": full_p_url,
-                                "image": "",
-                                "category": "이벤트",
-                                "sub_category": "",
-                                "pv": "0",
-                                "bv": "0"
+                            // Image
+                            let imgEl = product.querySelector("img");
+                            let imgSrc = imgEl ? imgEl.getAttribute("src") : "";
+                            if (imgSrc && imgSrc.startsWith("/")) {
+                                imgSrc = "https://www.amway.co.kr" + imgSrc;
                             }
-                    except: continue
+
+                            if (!results[productId]) {
+                                results[productId] = {
+                                    "id": productId,
+                                    "name": name,
+                                    "price": price,
+                                    "status": "진행중",
+                                    "link": full_p_url,
+                                    "image": imgSrc,
+                                    "category": "이벤트",
+                                    "sub_category": "",
+                                    "pv": pv,
+                                    "bv": bv
+                                };
+                            }
+                        } catch(e) {}
+                    });
+                } else {
+                    // Fallback: Link-only check
+                    const shopLinks = document.querySelectorAll("a[href*='/shop/']");
+                    shopLinks.forEach(sl => {
+                        try {
+                            let href = sl.getAttribute("href");
+                            if (href.includes("/shop/c/")) return;
+
+                            // Check if it looks like a product link (has /p/ or ends in digits)
+                            let parts = href.split('/');
+                            let lastPart = parts[parts.length - 1];
+                            if (!href.includes("/p/") && isNaN(lastPart)) return;
+
+                            let fullPUrl = href.startsWith("/") ? "https://www.amway.co.kr" + href : href;
+                            let productId = fullPUrl.split('/').pop();
+
+                            let name = sl.innerText.trim();
+                            if (!name) {
+                                let img = sl.querySelector("img");
+                                if (img) name = img.getAttribute("alt") || "이벤트 상품";
+                            }
+                            if (!name) name = "이벤트 상품";
+
+                            if (!results[productId]) {
+                                results[productId] = {
+                                    "id": productId,
+                                    "name": name,
+                                    "price": "0",
+                                    "status": "진행중",
+                                    "link": fullPUrl,
+                                    "image": "",
+                                    "category": "이벤트",
+                                    "sub_category": "",
+                                    "pv": "0",
+                                    "bv": "0"
+                                };
+                            }
+                        } catch(e) {}
+                    });
+                }
+                return results;
+            }""")
 
         except Exception as e:
             print(f"    -> [Promo Error] {target_title}: {e}")
