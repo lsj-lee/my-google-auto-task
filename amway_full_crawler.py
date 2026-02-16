@@ -390,36 +390,41 @@ async def crawl_promotions(page, context):
         await asyncio.sleep(1)
     except: pass
 
-    promo_items = []
-    candidates = await page.query_selector_all("a")
+    promo_items = await page.evaluate(r"""() => {
+        const results = [];
+        const links = document.querySelectorAll('a');
 
-    for link_el in candidates:
-        try:
-            text = await link_el.inner_text()
-            text = text.strip()
-            if not text or len(text) < 5: continue
-            if "기간 :" not in text and "프로모션" not in text: continue
+        links.forEach(link => {
+            const textRaw = link.innerText;
+            const text = textRaw ? textRaw.trim() : "";
 
-            if "진행중인" in text or "종료된" in text: continue
+            if (!text || text.length < 5) return;
+            if (!text.includes("기간 :") && !text.includes("프로모션")) return;
+            if (text.includes("진행중인") || text.includes("종료된")) return;
 
-            href = await link_el.get_attribute("href")
-            data_code = await link_el.get_attribute("data-code")
-            notice_type = await link_el.get_attribute("data-notice-type")
+            const href = link.getAttribute('href');
+            const dataCode = link.getAttribute('data-code');
+            const noticeType = link.getAttribute('data-notice-type');
 
-            target_url = None
-            if href and href != "#" and not href.startswith("javascript"):
-                target_url = href
-                if target_url.startswith("/"):
-                    target_url = "https://www.amway.co.kr" + target_url
-            elif data_code and notice_type:
-                target_url = f"https://www.amway.co.kr/notifications/promotion/detail?notificationCode={data_code}&noticeType={notice_type}&searchPromotionStatus=progress"
+            let targetUrl = null;
+            if (href && href !== "#" && !href.startsWith("javascript")) {
+                targetUrl = href;
+                if (targetUrl.startsWith("/")) {
+                    targetUrl = "https://www.amway.co.kr" + targetUrl;
+                }
+            } else if (dataCode && noticeType) {
+                targetUrl = `https://www.amway.co.kr/notifications/promotion/detail?notificationCode=${dataCode}&noticeType=${noticeType}&searchPromotionStatus=progress`;
+            }
 
-            if target_url:
-                promo_items.append({
-                    "text": text.split('\n')[0].strip(),
-                    "url": target_url
-                })
-        except: continue
+            if (targetUrl) {
+                results.push({
+                    text: text.split('\n')[0].trim(),
+                    url: targetUrl
+                });
+            }
+        });
+        return results;
+    }""")
 
     print(f"  총 {len(promo_items)}개의 유효한 프로모션 항목을 발견했습니다. (Concurrent Processing Start)")
 
