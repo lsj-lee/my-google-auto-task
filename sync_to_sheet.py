@@ -102,12 +102,26 @@ class SheetManager:
         
         for item in sorted_items:
             name = item.get('name', '')
+            original_name = name
+            status = item.get('status', '')
+
+            # [Added] Sold Out Handling
+            # If status is "일시품절" or "품절", append "(품절)" to the name
+            if status in ["일시품절", "품절"]:
+                if "(품절)" not in name:
+                    name = f"{name} (품절)"
+
             if name:
                 self.new_data_check[name] = item
 
             # Restore AI Data if exists
-            tags = self.ai_data.get(name, {}).get('tags', '')
-            desc = self.ai_data.get(name, {}).get('desc', '')
+            # Try to restore using the modified name first, then fallback to original name
+            ai_info = self.ai_data.get(name)
+            if not ai_info and name != original_name:
+                ai_info = self.ai_data.get(original_name)
+
+            tags = ai_info.get('tags', '') if ai_info else ''
+            desc = ai_info.get('desc', '') if ai_info else ''
 
             # Price/PV/BV cleanup
             price_raw = str(item.get('price','0')).replace('원', '').replace(',', '').strip()
