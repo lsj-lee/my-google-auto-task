@@ -65,9 +65,16 @@ async def load_previous_state():
             return {}
     return {}
 
-def save_current_state(data):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+async def save_current_state(data):
+    """
+    Asynchronously saves the current state to the JSON file.
+    Uses run_in_executor to avoid blocking the event loop during file I/O.
+    """
+    loop = asyncio.get_running_loop()
+    def _write_file():
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    await loop.run_in_executor(None, _write_file)
 
 async def _extract_products_optimized(page, cat_name):
     return await page.evaluate(r"""(cat_name) => {
@@ -473,7 +480,7 @@ async def run_full_crawl(data_callback=None):
         await browser.close()
 
     print(f"Total products scraped: {len(current_data)}")
-    save_current_state(current_data)
+    await save_current_state(current_data)
     return current_data
 
 if __name__ == "__main__":
