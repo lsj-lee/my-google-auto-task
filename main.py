@@ -51,6 +51,8 @@ else:
 
 # 클라이언트 초기화
 openai_client = None
+google_model_cache = {}
+
 if AI_PROVIDER == 'openai':
     api_key = os.environ.get("OPENAI_API_KEY")
     if api_key:
@@ -145,7 +147,10 @@ def get_ai_response_batch(product_list):
             
             for model_name in candidate_models:
                 try:
-                    model = genai.GenerativeModel(model_name)
+                    # [최적화] 모델 객체 재사용 (캐싱)
+                    if model_name not in google_model_cache:
+                        google_model_cache[model_name] = genai.GenerativeModel(model_name)
+                    model = google_model_cache[model_name]
                     
                     response = model.generate_content(
                         prompt_text, 
